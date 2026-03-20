@@ -1,0 +1,8 @@
+"0","ggplot(bitcoin_pageviews_monthly, aes(x = ds, y = y)) +"
+"0","  geom_line(alpha = 0.5) +"
+"0","  geom_smooth(se = FALSE) +"
+"0","  labs("
+"0","    title = ""Monthly Bitcoin Pageviews with Smoothed Trend"","
+"0","    x = ""Year"","
+"0","    y = ""Monthly pageviews"""
+"0","  )"

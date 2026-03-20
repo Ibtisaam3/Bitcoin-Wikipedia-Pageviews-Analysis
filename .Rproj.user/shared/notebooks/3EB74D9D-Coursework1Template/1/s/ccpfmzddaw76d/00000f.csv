@@ -1,0 +1,5 @@
+"0","# This code will display the QMUL logo at the top right of the page"
+"0","# Do not change this code"
+"0","htmltools::img(src = knitr::image_uri(""images/QMlogo.png""),"
+"0","               alt = 'logo',"
+"0","               style = 'position:absolute; top:0; right:0; padding:10px; width:20%;')"

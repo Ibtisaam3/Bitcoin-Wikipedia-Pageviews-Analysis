@@ -1,0 +1,2 @@
+"0","peak_month <- bitcoin_pageviews_monthly[which.max(bitcoin_pageviews_monthly$y), ]"
+"0","peak_month"

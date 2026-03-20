@@ -1,0 +1,293 @@
+---
+title: "MTH6139 Time Series" 
+subtitle: "Coursework 1 -- Template" 
+author: "Your name and surname" 
+date: "Spring term 2025" 
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab 
+    highlight: tango
+---
+ 
+```{r, echo=FALSE}
+# This code will display the QMUL logo at the top right of the page
+# Do not change this code
+htmltools::img(src = knitr::image_uri("images/QMlogo.png"),
+               alt = 'logo',
+               style = 'position:absolute; top:0; right:0; padding:10px; width:20%;')
+```
+
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(prophet)
+library(jsonlite)
+library(ggplot2)
+library(dplyr)
+library(zoo)
+library(lubridate)
+```
+
+# Section 1: Project Purpose
+
+This project analyses the monthly Wikipedia pageviews for the article **Bitcoin**. It was motivated by the interest that my family and friends have in the “future of finance”. The aim is to study how public interest in Bitcoin has changed over time, identify any recurring patterns, and build a forecasting model using Meta’s Prophet system.
+
+Wikipedia pageviews are a useful proxy for public attention because they measure how often users search for information about a topic. In the case of Bitcoin, pageviews may rise during periods of strong media coverage, major market movements, or wider public debate about cryptocurrencies.
+
+# Section 2: Download and Prepare the Data
+
+```{r download-data}
+get_monthly_wikipedia_pageviews <- function(article_name = "Bitcoin",
+                                            project_name = "en.wikipedia.org",
+                                            access_type = "all-access",
+                                            agent_type = "all-agents",
+                                            start_date = "20150701",
+                                            end_date = format(Sys.Date(), "%Y%m%d")) {
+  
+  encoded_article_name <- utils::URLencode(article_name, reserved = TRUE)
+  
+  request_url <- paste0(
+    "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/",
+    project_name, "/",
+    access_type, "/",
+    agent_type, "/",
+    encoded_article_name, "/monthly/",
+    start_date, "/",
+    end_date
+  )
+  
+  connection_object <- url(
+    request_url,
+    headers = c("User-Agent" = "MTH6139-Time-Series-Coursework/1.0")
+  )
+  
+  raw_response <- readLines(connection_object, warn = FALSE)
+  close(connection_object)
+  
+  parsed_response <- jsonlite::fromJSON(paste(raw_response, collapse = ""))
+  
+  monthly_pageviews <- data.frame(
+    ds = as.Date(paste0(substr(parsed_response$items$timestamp, 1, 6), "01"),
+                 format = "%Y%m%d"),
+    y = parsed_response$items$views
+  )
+  
+  monthly_pageviews
+}
+
+bitcoin_pageviews_monthly <- get_monthly_wikipedia_pageviews()
+
+# Remove the current incomplete month if present
+bitcoin_pageviews_monthly <- bitcoin_pageviews_monthly %>%
+  filter(ds < floor_date(Sys.Date(), unit = "month"))
+
+head(bitcoin_pageviews_monthly)
+tail(bitcoin_pageviews_monthly)
+```
+
+The dataset contains two variables:
+
+- `ds`: the month
+- `y`: the total number of pageviews in that month
+
+```{r save-data}
+dir.create("data", showWarnings = FALSE)
+
+write.csv(
+  bitcoin_pageviews_monthly,
+  "data/bitcoin_wikipedia_pageviews_monthly.csv",
+  row.names = FALSE
+)
+```
+
+# Section 3: Data
+
+```{r data-checks}
+dim(bitcoin_pageviews_monthly)
+summary(bitcoin_pageviews_monthly$y)
+sum(is.na(bitcoin_pageviews_monthly$y))
+min(bitcoin_pageviews_monthly$ds)
+max(bitcoin_pageviews_monthly$ds)
+```
+
+This gives a basic check of the size of the dataset, the range of monthly pageviews, whether there are any missing values, and the time span covered.
+
+## 3.1 Monthly Time Series Plot
+
+```{r monthly-plot}
+ggplot(bitcoin_pageviews_monthly, aes(x = ds, y = y)) +
+  geom_line(linewidth = 0.4) +
+  scale_x_date(
+    date_breaks = "1 year",
+    date_labels = "%Y",
+    limits = c(min(bitcoin_pageviews_monthly$ds), max(bitcoin_pageviews_monthly$ds))
+  ) +
+  labs(
+    title = "Monthly Wikipedia Pageviews for Bitcoin",
+    x = "Year",
+    y = "Monthly pageviews"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r peak-month}
+peak_month <- bitcoin_pageviews_monthly[which.max(bitcoin_pageviews_monthly$y), ]
+peak_month
+
+cat(
+  "Peak month:", format(peak_month$ds, "%B %Y"), "\n",
+  "Peak pageviews:", format(peak_month$y, big.mark = ",")
+)
+```
+
+From this plot I can observe how public attention towards Bitcoin has changed through time.  
+December 2017 had the highest page views at 4,943,888 which likely came after CME (Chicago Mercantile Exchange)
+which is a derivates market place in Chicago announced it would launch bitcoin futures
+which pushed bitcoin a bit into the financial mainstream. Funnily enough around the same time
+several countries announced regulations agaisnt bitcoin like China which could have led
+to an increase searches for Bitcoin due to the market turbulence.
+
+## 3.2 Largest Monthly Spikes
+
+```{r largest-spikes}
+largest_monthly_spikes <- bitcoin_pageviews_monthly %>%
+  arrange(desc(y)) %>%
+  slice(1:10)
+
+largest_monthly_spikes
+```
+
+This table shows the ten months with the highest number of Bitcoin pageviews. Most of the largest spikes occur around 2017 and early 2018, which suggests that this was the period of greatest public interest in Bitcoin.
+
+# Section 4: Trend Analysis
+
+To better understand the general movement in the series, I add a smoothed trend line.
+
+```{r smooth-trend}
+ggplot(bitcoin_pageviews_monthly, aes(x = ds, y = y)) +
+  geom_line(alpha = 0.5) +
+  geom_smooth(se = FALSE) +
+  labs(
+    title = "Monthly Bitcoin Pageviews with Smoothed Trend",
+    x = "Year",
+    y = "Monthly pageviews"
+  )
+```
+
+This graph shows the monthly number of Wikipedia pageviews for Bitcoin together with a smoothed trend line. The series is highly volatile, with a very large spike in late 2017, showing a massive surge in public interest. After this peak, attention fell sharply, although there was another smaller rise around 2021. Overall, the smoothed trend suggests that interest in Bitcoin rose rapidly in the earlier years, reached a maximum during the 2017 boom, and then gradually declined, with temporary increases in later periods.
+
+# Section 5: Time Series Decomposition
+
+Monthly data is suitable for decomposition because it may contain long-term movement, seasonality, and random variation.
+
+```{r decomposition, fig.width=10, fig.height=8}
+start_year <- year(min(bitcoin_pageviews_monthly$ds))
+start_month <- month(min(bitcoin_pageviews_monthly$ds))
+
+bitcoin_monthly_ts <- ts(
+  bitcoin_pageviews_monthly$y,
+  start = c(start_year, start_month),
+  frequency = 12
+)
+
+bitcoin_monthly_decomposition <- decompose(bitcoin_monthly_ts)
+
+plot(bitcoin_monthly_decomposition)
+```
+
+The decomposition separates the series into:
+
+- observed data
+- trend
+- seasonal component
+- random component
+
+The decomposition plot shows that monthly Bitcoin Wikipedia pageviews were highly volatile over the sample period, with the observed series dominated by a very large spike in late 2017 and smaller increases around 2021–2022.
+The trend component suggests that public interest in Bitcoin rose sharply up to 2017, declined afterwards, experienced a more moderate recovery around 2021, and then gradually fell again toward the end of the period. 
+The seasonal component indicates that there may be some recurring within-year pattern, but this appears much less important than the large event-driven surges in attention.
+The random component also highlights that the late-2017 spike was unusually extreme and not fully explained by the underlying trend or seasonality, 
+suggesting that Bitcoin pageviews are influenced not only by regular patterns but also by sudden shocks linked to major news or market developments.
+
+# Section 6: Prophet Forecasting Model
+
+I now fit a Prophet model to the monthly pageviews data.
+
+```{r prophet-model}
+bitcoin_monthly_prophet_model <- prophet(
+  bitcoin_pageviews_monthly,
+  yearly.seasonality = TRUE,
+  weekly.seasonality = FALSE,
+  daily.seasonality = FALSE
+)
+```
+
+## 6.1 Forecasting the Next 12 Months
+
+```{r forecast}
+bitcoin_monthly_future_dates <- make_future_dataframe(
+  bitcoin_monthly_prophet_model,
+  periods = 12,
+  freq = "month"
+)
+
+bitcoin_monthly_forecast <- predict(
+  bitcoin_monthly_prophet_model,
+  bitcoin_monthly_future_dates
+)
+
+plot(bitcoin_monthly_prophet_model, bitcoin_monthly_forecast)
+```
+
+The Prophet forecast suggests that monthly Bitcoin pageviews will remain relatively stable over the next year, with some recurring fluctuations but no strong long-term increase or decrease. 
+The model follows the more recent part of the series better than the extreme spike in 2017, which indicates that unusual surges in public attention are difficult to predict.
+The uncertainty interval is quite wide, showing that future Bitcoin pageviews are hard to forecast precisely because interest can change suddenly when major news or market events occur.
+
+## 6.2 Forecast Components
+
+```{r forecast-components}
+prophet_plot_components(bitcoin_monthly_prophet_model, bitcoin_monthly_forecast)
+```
+
+The components plot shows that the Prophet model identifies a clear downward long-term trend in Bitcoin Wikipedia pageviews, meaning public interest has generally fallen over time after the earlier peak period. 
+It also shows some yearly seasonal variation, with certain parts of the year having slightly higher or lower pageviews.
+However, this seasonal effect is much smaller than the large spikes in the original data, 
+suggesting that Bitcoin pageviews are driven more by major news and market events than by stable seasonal patterns.
+
+# Section 7: Looking at a Shorter Time Frame
+
+It is also useful to inspect the most recent part of the series separately.
+
+```{r recent-years}
+recent_bitcoin_pageviews_monthly <- bitcoin_pageviews_monthly %>%
+  filter(ds >= as.Date("2021-01-01"))
+
+ggplot(recent_bitcoin_pageviews_monthly, aes(x = ds, y = y)) +
+  geom_line() +
+  labs(
+    title = "Monthly Bitcoin Pageviews Since 2021",
+    x = "Year",
+    y = "Monthly pageviews"
+  )
+```
+
+This shorter view makes recent patterns easier to see. The general theme is the same
+in that the monthly pageviews have gone down and while there are occasional spikes 
+they are due to some market news the overall public interest in Bitcoin has gone down.
+
+# Section 8: Conclusion
+
+This project analysed monthly Wikipedia pageviews for the article Bitcoin as a measure of public attention.  
+The time series showed that interest in Bitcoin changes substantially over time, with some months attracting far more pageviews than others.
+
+The decomposition and Prophet model were used to study the structure of the series and forecast future values.  
+
+In conclusion, Bitcoin pageviews provide an interesting example of a modern time series linked to technology, finance, and public interest.  
+
+# References
+
+- Wikimedia Pageviews API: <https://wikimedia.org/api/rest_v1/>
+- Meta Prophet forecasting system: <https://facebook.github.io/prophet/>
+

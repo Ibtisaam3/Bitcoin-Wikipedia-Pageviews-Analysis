@@ -1,0 +1,6 @@
+"0","bitcoin_monthly_prophet_model <- prophet("
+"0","  bitcoin_pageviews_monthly,"
+"0","  yearly.seasonality = TRUE,"
+"0","  weekly.seasonality = FALSE,"
+"0","  daily.seasonality = FALSE"
+"0",")"

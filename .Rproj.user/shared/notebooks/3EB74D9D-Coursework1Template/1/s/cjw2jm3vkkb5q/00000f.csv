@@ -1,0 +1,7 @@
+"0","dir.create(""data"", showWarnings = FALSE)"
+"0",""
+"0","write.csv("
+"0","  bitcoin_pageviews_monthly,"
+"0","  ""data/bitcoin_wikipedia_pageviews_monthly.csv"","
+"0","  row.names = FALSE"
+"0",")"
